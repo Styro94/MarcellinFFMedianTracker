@@ -38,7 +38,7 @@ def get_current_scores(league: League):
     return scores
 
 
-def build_html(scores, median, week, updated_at):
+def build_html(scores, median, week, updated_at, updated_at_iso):
     # Sort numerically, highest score first
     sorted_scores = sorted(scores, key=lambda x: x[1], reverse=True)
 
@@ -85,6 +85,11 @@ def build_html(scores, median, week, updated_at):
         margin-top: 4px;
         margin-bottom: 20px;
         font-size: 0.9rem;
+    }}
+    .updated-box {{
+        color: #9aa0a6;
+        font-size: 0.85rem;
+        margin-bottom: 14px;
     }}
     .median-box {{
         background: #1b1e26;
@@ -142,6 +147,10 @@ def build_html(scores, median, week, updated_at):
     <h1>Median Bonus Tracker</h1>
     <div class="subtitle">Week {week} &middot; live scores</div>
 
+    <div class="updated-box" id="updated-box" data-updated="{updated_at_iso}">
+        Last updated at <span id="updated-time"></span> (<span id="updated-ago">just now</span>)
+    </div>
+
     <div class="median-box">
         Current median score: <strong>{median:.2f}</strong>
     </div>
@@ -159,7 +168,34 @@ def build_html(scores, median, week, updated_at):
         </tbody>
     </table>
 
-    <div class="footer">Last updated {updated_at} UTC &middot; auto-refreshes every ~15 min</div>
+    <div class="footer">Auto-refreshes every ~5 min during Sun/Mon games</div>
+
+    <script>
+        (function() {{
+            var updatedAt = new Date(document.getElementById('updated-box').dataset.updated);
+
+            function render() {{
+                document.getElementById('updated-time').textContent =
+                    updatedAt.toLocaleTimeString([], {{ hour: 'numeric', minute: '2-digit' }});
+
+                var seconds = Math.floor((new Date() - updatedAt) / 1000);
+                var text;
+                if (seconds < 60) {{
+                    text = 'just now';
+                }} else if (seconds < 3600) {{
+                    var mins = Math.floor(seconds / 60);
+                    text = mins + (mins === 1 ? ' minute ago' : ' minutes ago');
+                }} else {{
+                    var hours = Math.floor(seconds / 3600);
+                    text = hours + (hours === 1 ? ' hour ago' : ' hours ago');
+                }}
+                document.getElementById('updated-ago').textContent = text;
+            }}
+
+            render();
+            setInterval(render, 15000); // refresh the "X minutes ago" text every 15s
+        }})();
+    </script>
 </body>
 </html>
 """
@@ -177,9 +213,11 @@ def main():
     values = [s for _, s in scores]
     median = statistics.median(values)
     week = league.current_week
-    updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+    now = datetime.now(timezone.utc)
+    updated_at = now.strftime("%Y-%m-%d %H:%M")
+    updated_at_iso = now.isoformat()
 
-    html = build_html(scores, median, week, updated_at)
+    html = build_html(scores, median, week, updated_at, updated_at_iso)
 
     with open(OUTPUT_FILE, "w") as f:
         f.write(html)
