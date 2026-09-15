@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fantasy Football Median Tracker - Week 2</title>
+<style>
+    body {
+        font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        background: #0f1115;
+        color: #e6e6e6;
+        max-width: 700px;
+        margin: 40px auto;
+        padding: 0 20px;
+    }
+    h1 {
+        font-size: 1.5rem;
+        margin-bottom: 0;
+    }
+    .subtitle {
+        color: #9aa0a6;
+        margin-top: 4px;
+        margin-bottom: 20px;
+        font-size: 0.9rem;
+    }
+    .median-box {
+        background: #1b1e26;
+        border: 1px solid #2a2e38;
+        border-radius: 10px;
+        padding: 16px 20px;
+        margin-bottom: 24px;
+        font-size: 1.1rem;
+    }
+    .median-box strong {
+        color: #7fd1a8;
+        font-size: 1.4rem;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #1b1e26;
+        border-radius: 10px;
+        overflow: hidden;
+    }
+    th, td {
+        padding: 12px 14px;
+        text-align: left;
+    }
+    th {
+        background: #23272f;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        color: #9aa0a6;
+    }
+    td.score {
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+    }
+    tr.above td.score { color: #7fd1a8; }
+    tr.below td.score { color: #e08585; }
+    .badge {
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .badge.win { background: rgba(127,209,168,0.15); color: #7fd1a8; }
+    .badge.loss { background: rgba(224,133,133,0.15); color: #e08585; }
+    .badge.tie { background: rgba(200,200,120,0.15); color: #cfcf7a; }
+    .footer {
+        margin-top: 20px;
+        font-size: 0.75rem;
+        color: #666b73;
+        text-align: center;
+    }
+</style>
+</head>
+<body>
+    <h1>Median Bonus Tracker</h1>
+    <div class="subtitle">Week 2 &middot; live scores</div>
+
+    <div class="median-box">
+        Current median score: <strong>0.00</strong>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Team</th>
+                <th>Score</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            
+        <tr class="tie">
+            <td>640 BoogerEater</td>
+            <td class="score">0.00</td>
+            <td><span class="badge tie">Tied at Median</span></td>
+        </tr>
+        <tr class="tie">
+            <td>Green Eggs and Hampton</td>
+            <td class="score">0.00</td>
+            <td><span class="badge tie">Tied at Median</span></td>
+        </tr>
+        <tr class="tie">
+            <td>Team Minke</td>
+            <td class="score">0.00</td>
+            <td><span class="badge tie">Tied at Median</span></td>
+        </tr>
+        <tr class="tie">
+            <td>Chud Bunglers</td>
+            <td class="score">0.00</td>
+            <td><span class="badge tie">Tied at Median</span></td>
+        </tr>
+        <tr class="tie">
+            <td>Joe's Scary Team</td>
+            <td class="score">0.00</td>
+            <td><span class="badge tie">Tied at Median</span></td>
+        </tr>
+        <tr class="tie">
+            <td>Shake 'n Bake</td>
+            <td class="score">0.00</td>
+            <td><span class="badge tie">Tied at Median</span></td>
+        </tr>
+        <tr class="tie">
+            <td>CoachO</td>
+            <td class="score">0.00</td>
+            <td><span class="badge tie">Tied at Median</span></td>
+        </tr>
+        <tr class="tie">
+            <td>Marin Maulers </td>
+            <td class="score">0.00</td>
+            <td><span class="badge tie">Tied at Median</span></td>
+        </tr>
+        <tr class="tie">
+            <td>Bandon Tookies</td>
+            <td class="score">0.00</td>
+            <td><span class="badge tie">Tied at Median</span></td>
+        </tr>
+        <tr class="tie">
+            <td>Michigan Mavericks</td>
+            <td class="score">0.00</td>
+            <td><span class="badge tie">Tied at Median</span></td>
+        </tr>
+        <tr class="tie">
+            <td>FightingDucks SWilliams</td>
+            <td class="score">0.00</td>
+            <td><span class="badge tie">Tied at Median</span></td>
+        </tr>
+        <tr class="tie">
+            <td>Michigan  Jase</td>
+            <td class="score">0.00</td>
+            <td><span class="badge tie">Tied at Median</span></td>
+        </tr>
+        </tbody>
+    </table>
+
+    <div class="footer">Last updated 2026-09-15 15:51 UTC &middot; auto-refreshes every ~15 min</div>
+</body>
+</html>
