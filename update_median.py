@@ -176,7 +176,12 @@ def build_html(scores, median, week, updated_at, updated_at_iso):
 
             function render() {{
                 document.getElementById('updated-time').textContent =
-                    updatedAt.toLocaleTimeString([], {{ hour: 'numeric', minute: '2-digit' }});
+                    updatedAt.toLocaleTimeString('en-US', {{
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        timeZone: 'America/Los_Angeles',
+                        timeZoneName: 'short'
+                    }});
 
                 var seconds = Math.floor((new Date() - updatedAt) / 1000);
                 var text;
