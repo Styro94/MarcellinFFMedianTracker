@@ -26,15 +26,17 @@ OUTPUT_FILE = "index.html"
 
 
 def get_current_scores(league: League):
-    """Return a list of (team_name, score) tuples for the current live week."""
+    """Return a list of (team_name, score, projected_score) tuples for the current live week."""
     box_scores = league.box_scores()
     scores = []
     for game in box_scores:
         # Some weeks (e.g. bye weeks) may have a missing home or away team
         if game.home_team:
-            scores.append((game.home_team.team_name, game.home_score))
+            projected = getattr(game, "home_projected", None)
+            scores.append((game.home_team.team_name, game.home_score, projected))
         if game.away_team:
-            scores.append((game.away_team.team_name, game.away_score))
+            projected = getattr(game, "away_projected", None)
+            scores.append((game.away_team.team_name, game.away_score, projected))
     return scores
 
 
@@ -43,7 +45,7 @@ def build_html(scores, median, week, updated_at, updated_at_iso):
     sorted_scores = sorted(scores, key=lambda x: x[1], reverse=True)
 
     rows = ""
-    for team_name, score in sorted_scores:
+    for team_name, score, projected in sorted_scores:
         if score > median:
             badge = '<span class="badge win">Bonus Win</span>'
             row_class = "above"
@@ -54,10 +56,15 @@ def build_html(scores, median, week, updated_at, updated_at_iso):
             badge = '<span class="badge tie">Tied at Median</span>'
             row_class = "tie"
 
+        if projected is not None:
+            proj_html = f'<div class="proj">proj {projected:.1f}</div>'
+        else:
+            proj_html = ""
+
         rows += f"""
         <tr class="{row_class}">
             <td>{team_name}</td>
-            <td class="score">{score:.2f}</td>
+            <td class="score">{score:.2f}{proj_html}</td>
             <td>{badge}</td>
         </tr>"""
 
@@ -123,6 +130,12 @@ def build_html(scores, median, week, updated_at, updated_at_iso):
     td.score {{
         font-variant-numeric: tabular-nums;
         font-weight: 600;
+    }}
+    .proj {{
+        font-weight: 400;
+        font-size: 0.7rem;
+        color: #666b73;
+        margin-top: 2px;
     }}
     tr.above td.score {{ color: #7fd1a8; }}
     tr.below td.score {{ color: #e08585; }}
@@ -215,7 +228,7 @@ def main():
         print("No scores found (bye week or offseason?). Skipping HTML update.")
         return
 
-    values = [s for _, s in scores]
+    values = [s for _, s, _ in scores]
     median = statistics.median(values)
     week = league.current_week
     now = datetime.now(timezone.utc)
