@@ -12,14 +12,14 @@ on:
     #   - Sat 17:00-23:59 UTC  -> covers the very start of Sunday 00:00 Pacific
     #   - all day Sunday UTC   -> covers Sunday daytime/evening Pacific
     #   - all day Monday UTC   -> covers Sunday night through Monday daytime Pacific
-    #   - Tue 00:00-11:00 UTC  -> covers Monday Night Football through ~3am Pacific
+    #   - Tue 00:00-13:00 UTC  -> covers Monday Night Football through ~5-6am Pacific
     # This is intentionally a bit wider than necessary so it works correctly
     # whether it's Pacific Daylight Time or Pacific Standard Time - a few
     # extra cheap 5-minute runs on the edges is not a problem.
     - cron: "*/5 17-23 * * 6"
     - cron: "*/5 * * * 0"
     - cron: "*/5 * * * 1"
-    - cron: "*/5 0-11 * * 2"
+    - cron: "*/5 0-13 * * 2"
   workflow_dispatch: {}   # lets you manually trigger a run from the Actions tab
 
 permissions:
