@@ -2,13 +2,24 @@ name: Update Median Tracker
 
 on:
   schedule:
-    # Runs every 5 minutes, all day Sunday (day 0) and Monday (day 1) UTC.
-    # NFL games span multiple US timezones so this errs on the wide side;
-    # it's cheap to run and does nothing harmful if there's no live game.
-    # Note: GitHub doesn't guarantee exact timing for scheduled workflows,
-    # especially during peak load (like NFL Sundays) - runs may occasionally
-    # be a few minutes late, but this won't affect correctness.
-    - cron: "*/5 * * * 0,1"
+    # NFL games run all day Sunday and Monday evening, Pacific Time.
+    # Cron schedules run in UTC, and Pacific is 7-8 hours behind UTC
+    # (depending on daylight saving), so "Sunday/Monday Pacific" actually
+    # spans FOUR different UTC calendar days: it starts Saturday evening
+    # UTC and, because Monday Night Football kicks off around 5pm Pacific
+    # (which is already Tuesday morning in UTC), doesn't finish until
+    # Tuesday morning UTC. The four lines below cover that whole window:
+    #   - Sat 17:00-23:59 UTC  -> covers the very start of Sunday 00:00 Pacific
+    #   - all day Sunday UTC   -> covers Sunday daytime/evening Pacific
+    #   - all day Monday UTC   -> covers Sunday night through Monday daytime Pacific
+    #   - Tue 00:00-11:00 UTC  -> covers Monday Night Football through ~3am Pacific
+    # This is intentionally a bit wider than necessary so it works correctly
+    # whether it's Pacific Daylight Time or Pacific Standard Time - a few
+    # extra cheap 5-minute runs on the edges is not a problem.
+    - cron: "*/5 17-23 * * 6"
+    - cron: "*/5 * * * 0"
+    - cron: "*/5 * * * 1"
+    - cron: "*/5 0-11 * * 2"
   workflow_dispatch: {}   # lets you manually trigger a run from the Actions tab
 
 permissions:
