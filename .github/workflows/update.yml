@@ -8,7 +8,7 @@ on:
     # spans FOUR different UTC calendar days: it starts Saturday evening
     # UTC and, because Monday Night Football kicks off around 5pm Pacific
     # (which is already Tuesday morning in UTC), doesn't finish until
-    # Tuesday morning UTC. The four lines below cover that whole window:
+    # Tuesday morning UTC. The lines below cover that whole window:
     #   - Sat 17:00-23:59 UTC  -> covers the very start of Sunday 00:00 Pacific
     #   - all day Sunday UTC   -> covers Sunday daytime/evening Pacific
     #   - all day Monday UTC   -> covers Sunday night through Monday daytime Pacific
@@ -20,6 +20,18 @@ on:
     - cron: "*/5 * * * 0"
     - cron: "*/5 * * * 1"
     - cron: "*/5 0-13 * * 2"
+
+    # One extra run on Wednesday to flip the page over from "final scores
+    # of the week that just finished" to "the upcoming week's matchups."
+    # ESPN typically rolls its own internal "current week" over to the
+    # next week around Wednesday (after Tuesday-night waiver processing),
+    # so this run just re-fetches whatever ESPN now considers current.
+    # A short window + every-30-min interval is plenty since nothing is
+    # actively changing on a Wednesday morning - this just needs to catch
+    # the rollover once it happens. 15:00-18:59 UTC covers roughly
+    # 7am-11:59am Pacific across both PDT and PST.
+    - cron: "*/30 15-18 * * 3"
+
   workflow_dispatch: {}   # lets you manually trigger a run from the Actions tab
 
 permissions:
