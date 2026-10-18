@@ -15,7 +15,7 @@ on:
     - cron: "17 0-13 * * 2"     # Tuesday UTC morning (Monday night games, Pacific)
     - cron: "17 16 * * 3"       # Wednesday: one refresh to show the new week
 
-  workflow_dispatch: {}   # manual "Run workflow" button (does a single update)
+  workflow_dispatch: {}   # manual "Run workflow" button (starts a loop too)
 
 permissions:
   contents: write
@@ -46,9 +46,9 @@ jobs:
           YEAR: ${{ secrets.YEAR }}
           ESPN_S2: ${{ secrets.ESPN_S2 }}
           SWID: ${{ secrets.SWID }}
-          # Loop only for the scheduled game-day runs, not the Wednesday
-          # refresh or manual runs (those do a single update and finish).
-          IS_LOOP: ${{ github.event_name == 'schedule' && github.event.schedule != '17 16 * * 3' }}
+          # Loop on game-day scheduled runs AND manual runs. Only the
+          # Wednesday refresh does a single update and finishes.
+          IS_LOOP: ${{ github.event.schedule != '17 16 * * 3' }}
         run: |
           git config user.name "median-tracker-bot"
           git config user.email "actions@github.com"
