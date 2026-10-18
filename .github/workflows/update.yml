@@ -2,44 +2,32 @@ name: Update Median Tracker
 
 on:
   schedule:
-    # NFL games run all day Sunday and Monday evening, Pacific Time.
-    # Cron schedules run in UTC, and Pacific is 7-8 hours behind UTC
-    # (depending on daylight saving), so "Sunday/Monday Pacific" actually
-    # spans FOUR different UTC calendar days: it starts Saturday evening
-    # UTC and, because Monday Night Football kicks off around 5pm Pacific
-    # (which is already Tuesday morning in UTC), doesn't finish until
-    # Tuesday morning UTC. The lines below cover that whole window:
-    #   - Sat 17:00-23:59 UTC  -> covers the very start of Sunday 00:00 Pacific
-    #   - all day Sunday UTC   -> covers Sunday daytime/evening Pacific
-    #   - all day Monday UTC   -> covers Sunday night through Monday daytime Pacific
-    #   - Tue 00:00-13:00 UTC  -> covers Monday Night Football through ~5-6am Pacific
-    # This is intentionally a bit wider than necessary so it works correctly
-    # whether it's Pacific Daylight Time or Pacific Standard Time - a few
-    # extra cheap 5-minute runs on the edges is not a problem.
-    - cron: "*/5 17-23 * * 6"
-    - cron: "*/5 * * * 0"
-    - cron: "*/5 * * * 1"
-    - cron: "*/5 0-13 * * 2"
+    # GitHub throttles frequent cron schedules (a "*/5" schedule was only
+    # firing every 3-4 hours on game days). So instead of triggering a run
+    # every 5 minutes, we trigger ONE long run and let it loop internally,
+    # updating the page every 5 minutes for up to ~5.5 hours.
+    # Hourly triggers keep a loop going all day; the "concurrency" setting
+    # below makes sure only one runs at a time (extras wait in line).
+    # Cron times are UTC. Pacific is 7-8 hours behind, so Monday Night
+    # Football (evening Monday Pacific) falls on Tuesday UTC.
+    - cron: "17 * * * 0"        # all day Sunday UTC
+    - cron: "17 * * * 1"        # all day Monday UTC
+    - cron: "17 0-13 * * 2"     # Tuesday UTC morning (Monday night games, Pacific)
+    - cron: "17 16 * * 3"       # Wednesday: one refresh to show the new week
 
-    # One extra run on Wednesday to flip the page over from "final scores
-    # of the week that just finished" to "the upcoming week's matchups."
-    # ESPN typically rolls its own internal "current week" over to the
-    # next week around Wednesday (after Tuesday-night waiver processing),
-    # so this run just re-fetches whatever ESPN now considers current.
-    # A short window + every-30-min interval is plenty since nothing is
-    # actively changing on a Wednesday morning - this just needs to catch
-    # the rollover once it happens. 15:00-18:59 UTC covers roughly
-    # 7am-11:59am Pacific across both PDT and PST.
-    - cron: "*/30 15-18 * * 3"
-
-  workflow_dispatch: {}   # lets you manually trigger a run from the Actions tab
+  workflow_dispatch: {}   # manual "Run workflow" button (does a single update)
 
 permissions:
   contents: write
 
+concurrency:
+  group: median-tracker
+  cancel-in-progress: false
+
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 355
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -52,18 +40,34 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run update script
+      - name: Update page (loops every 5 minutes on game days)
         env:
           LEAGUE_ID: ${{ secrets.LEAGUE_ID }}
           YEAR: ${{ secrets.YEAR }}
           ESPN_S2: ${{ secrets.ESPN_S2 }}
           SWID: ${{ secrets.SWID }}
-        run: python update_median.py
-
-      - name: Commit and push updated page
+          # Loop only for the scheduled game-day runs, not the Wednesday
+          # refresh or manual runs (those do a single update and finish).
+          IS_LOOP: ${{ github.event_name == 'schedule' && github.event.schedule != '17 16 * * 3' }}
         run: |
           git config user.name "median-tracker-bot"
           git config user.email "actions@github.com"
-          git add index.html
-          git diff --quiet --cached || git commit -m "Update median tracker"
-          git push
+
+          ITERATIONS=1
+          if [ "$IS_LOOP" = "true" ]; then ITERATIONS=66; fi
+
+          FAILED=0
+          for i in $(seq 1 $ITERATIONS); do
+            python update_median.py || FAILED=1
+            git add index.html
+            git diff --quiet --cached || git commit -m "Update median tracker"
+            git pull --rebase -q && git push -q || FAILED=1
+
+            # Stop looping once Tuesday afternoon UTC arrives (games are over)
+            if [ "$(date -u +%u)" = "2" ] && [ "$(date -u +%H)" -ge 14 ]; then
+              break
+            fi
+
+            if [ "$i" -lt "$ITERATIONS" ]; then sleep 300; fi
+          done
+          exit $FAILED
