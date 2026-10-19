@@ -31,6 +31,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -61,7 +63,8 @@ jobs:
             python update_median.py || FAILED=1
             git add index.html
             git diff --quiet --cached || git commit -m "Update median tracker"
-            git pull --rebase -q && git push -q || FAILED=1
+            git pull --rebase -q origin main || { echo "pull failed, continuing"; git rebase --abort 2>/dev/null || true; }
+            git push -q origin HEAD:main || FAILED=1
 
             # Stop looping once Tuesday afternoon UTC arrives (games are over)
             if [ "$(date -u +%u)" = "2" ] && [ "$(date -u +%H)" -ge 14 ]; then
