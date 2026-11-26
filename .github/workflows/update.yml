@@ -1,88 +1,372 @@
-name: Update Median Tracker
+"""
+ESPN Fantasy Football - Median Bonus Win/Loss Tracker
 
-on:
-  schedule:
-    # GitHub throttles frequent cron schedules (a "*/5" schedule was only
-    # firing every 3-4 hours on game days). So instead of triggering a run
-    # every 5 minutes, we trigger ONE long run and let it loop internally,
-    # updating the page every 5 minutes for up to ~5.5 hours.
-    # Hourly triggers keep a loop going all day; the "concurrency" setting
-    # below makes sure only one runs at a time (extras wait in line).
-    # Cron times are UTC. Pacific is 7-8 hours behind, so Monday Night
-    # Football (evening Monday Pacific) falls on Tuesday UTC.
-    - cron: "17 * * * 0"        # all day Sunday UTC
-    - cron: "17 * * * 1"        # all day Monday UTC
-    - cron: "17 0-13 * * 2"     # Tuesday UTC morning (Monday night games, Pacific)
-    - cron: "17 16 * * 3"       # Wednesday: one refresh to show the new week
+Fetches the current week's live scores from your ESPN fantasy league,
+calculates the median score, and generates an HTML page showing who
+is currently above/below median (i.e., who's on track for the bonus
+win or bonus loss).
 
-    # THANKSGIVING 2026 (Thursday Nov 26). These two entries only match
-    # that specific date, so they do nothing on any other day.
-    # 14:17 UTC Thursday = 6:17am Pacific; the last trigger is 06:17 UTC
-    # Friday = 10:17pm Pacific, after the night game wraps up.
-    - cron: "17 14-23 26 11 *"
-    - cron: "17 0-6 27 11 *"
+This is meant to be run automatically (e.g. via GitHub Actions) every
+10-15 minutes during game windows, and outputs index.html which is
+served by GitHub Pages.
+"""
 
-  workflow_dispatch: {}   # manual "Run workflow" button (starts a loop too)
+import os
+import statistics
+from datetime import datetime, timezone
+from espn_api.football import League
 
-permissions:
-  contents: write
+# ---- Configuration (pulled from environment variables / GitHub Secrets) ----
+LEAGUE_ID = int(os.environ["LEAGUE_ID"])
+YEAR = int(os.environ["YEAR"])
+ESPN_S2 = os.environ["ESPN_S2"]
+SWID = os.environ["SWID"]
 
-concurrency:
-  group: median-tracker
-  cancel-in-progress: false
+OUTPUT_FILE = "index.html"
 
-jobs:
-  update:
-    runs-on: ubuntu-latest
-    timeout-minutes: 355
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          ref: main
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+def get_current_scores(league: League):
+    """Return a list of (team_name, score, projected_score) tuples for the current live week."""
+    box_scores = league.box_scores()
+    scores = []
+    for game in box_scores:
+        # Some weeks (e.g. bye weeks) may have a missing home or away team
+        if game.home_team:
+            projected = getattr(game, "home_projected", None)
+            scores.append((game.home_team.team_name, game.home_score, projected))
+        if game.away_team:
+            projected = getattr(game, "away_projected", None)
+            scores.append((game.away_team.team_name, game.away_score, projected))
+    return scores
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
 
-      - name: Update page (loops every 5 minutes on game days)
-        env:
-          LEAGUE_ID: ${{ secrets.LEAGUE_ID }}
-          YEAR: ${{ secrets.YEAR }}
-          ESPN_S2: ${{ secrets.ESPN_S2 }}
-          SWID: ${{ secrets.SWID }}
-          # Loop on game-day scheduled runs AND manual runs. Only the
-          # Wednesday refresh does a single update and finishes.
-          IS_LOOP: ${{ github.event.schedule != '17 16 * * 3' }}
-        run: |
-          git config user.name "median-tracker-bot"
-          git config user.email "actions@github.com"
+def compute_standings(league):
+    """
+    Build standings rows with overall, head-to-head, and vs-median records.
+    Only fully completed regular-season weeks count. Returns a list of dicts.
+    """
+    teams = league.teams
+    reg_weeks = getattr(league.settings, "reg_season_count", None)
+    n_weeks = min(len(t.outcomes) for t in teams)
+    if reg_weeks:
+        n_weeks = min(n_weeks, reg_weeks)
 
-          ITERATIONS=1
-          if [ "$IS_LOOP" = "true" ]; then ITERATIONS=66; fi
+    rec = {t.team_id: {"h2h": [0, 0, 0], "med": [0, 0, 0]} for t in teams}
+    idx = {"W": 0, "L": 1, "T": 2}
 
-          FAILED=0
-          for i in $(seq 1 $ITERATIONS); do
-            python update_median.py || FAILED=1
-            git add index.html
-            git diff --quiet --cached || git commit -m "Update median tracker"
-            git pull --rebase -q origin main || { echo "pull failed, continuing"; git rebase --abort 2>/dev/null || true; }
-            git push -q origin HEAD:main || FAILED=1
+    for w in range(n_weeks):
+        outcomes = [str(t.outcomes[w]).upper() for t in teams]
+        if any(o not in idx for o in outcomes):
+            continue  # week isn't finished for everyone yet
+        week_scores = [t.scores[w] for t in teams]
+        week_median = statistics.median(week_scores)
+        for t, outcome in zip(teams, outcomes):
+            rec[t.team_id]["h2h"][idx[outcome]] += 1
+            if t.scores[w] > week_median:
+                rec[t.team_id]["med"][0] += 1
+            elif t.scores[w] < week_median:
+                rec[t.team_id]["med"][1] += 1
+            else:
+                rec[t.team_id]["med"][2] += 1
 
-            # Stop looping once Tuesday afternoon UTC arrives (games are over)
-            if [ "$(date -u +%u)" = "2" ] && [ "$(date -u +%H)" -ge 14 ]; then
-              break
-            fi
+    # Playoff % from ESPN. Could be stored as 0-1 or 0-100, so detect the scale.
+    raw = [getattr(t, "playoff_pct", None) for t in teams]
+    present = [v for v in raw if v is not None]
+    scale = 100 if present and max(present) <= 1.0 else 1
 
-            # Stop looping Friday 07:00 UTC (11pm Pacific) - Thanksgiving night is over
-            if [ "$(date -u +%u)" = "5" ] && [ "$(date -u +%H)" -ge 7 ]; then
-              break
-            fi
+    rows = []
+    for t, pct in zip(teams, raw):
+        h2h, med = rec[t.team_id]["h2h"], rec[t.team_id]["med"]
+        overall = [h2h[i] + med[i] for i in range(3)]
+        espn_overall = [t.wins, t.losses, t.ties]
+        if overall != espn_overall:
+            print(f"NOTE: {t.team_name} computed {overall} differs from ESPN {espn_overall}")
+        games = sum(overall)
+        win_pct = (overall[0] + 0.5 * overall[2]) / games if games else 0.0
+        rows.append({
+            "name": t.team_name,
+            "overall": overall,
+            "h2h": h2h,
+            "med": med,
+            "win_pct": win_pct,
+            "points_for": getattr(t, "points_for", 0),
+            "standing": getattr(t, "standing", 0),
+            "playoff_pct": None if pct is None else pct * scale,
+        })
 
-            if [ "$i" -lt "$ITERATIONS" ]; then sleep 300; fi
-          done
-          exit $FAILED
+    # Prefer ESPN's own ranking (it applies your tiebreakers) when it looks valid
+    standings = sorted(r["standing"] for r in rows)
+    if standings == list(range(1, len(rows) + 1)):
+        rows.sort(key=lambda r: r["standing"])
+    else:
+        rows.sort(key=lambda r: (-r["win_pct"], -r["points_for"]))
+    return rows
+
+
+def fmt_record(r):
+    w, l, t = r
+    return f"{w}-{l}-{t}" if t else f"{w}-{l}"
+
+
+def build_standings_html(rows):
+    show_playoff = any(r["playoff_pct"] is not None for r in rows)
+    body = ""
+    for i, r in enumerate(rows, start=1):
+        playoff_cell = ""
+        if show_playoff:
+            pct = r["playoff_pct"]
+            playoff_cell = f'<td class="num">{pct:.0f}%</td>' if pct is not None else '<td class="num">&ndash;</td>'
+        body += f"""
+        <tr>
+            <td class="num">{i}</td>
+            <td>{r["name"]}</td>
+            <td class="num">{fmt_record(r["overall"])}</td>
+            <td class="num">{fmt_record(r["h2h"])}</td>
+            <td class="num">{fmt_record(r["med"])}</td>
+            {playoff_cell}
+        </tr>"""
+    playoff_header = "<th>Playoff %</th>" if show_playoff else ""
+    return f"""
+    <h2 class="section-title">League Standings</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Team</th>
+                <th>Record</th>
+                <th>H2H</th>
+                <th>vs Median</th>
+                {playoff_header}
+            </tr>
+        </thead>
+        <tbody>
+            {body}
+        </tbody>
+    </table>
+    <div class="standings-note">Completed weeks only &middot; Record = H2H + vs Median</div>
+"""
+
+
+def build_html(scores, median, week, updated_at, updated_at_iso, standings_html=""):
+    # Sort numerically, highest score first
+    sorted_scores = sorted(scores, key=lambda x: x[1], reverse=True)
+
+    rows = ""
+    for team_name, score, projected in sorted_scores:
+        if score > median:
+            badge = '<span class="badge win">Bonus Win</span>'
+            row_class = "above"
+        elif score < median:
+            badge = '<span class="badge loss">Bonus Loss</span>'
+            row_class = "below"
+        else:
+            badge = '<span class="badge tie">Tied at Median</span>'
+            row_class = "tie"
+
+        if projected is not None:
+            proj_html = f'<div class="proj">proj {projected:.1f}</div>'
+        else:
+            proj_html = ""
+
+        rows += f"""
+        <tr class="{row_class}">
+            <td>{team_name}</td>
+            <td class="score">{score:.2f}{proj_html}</td>
+            <td>{badge}</td>
+        </tr>"""
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fantasy Football Median Tracker - Week {week}</title>
+<style>
+    body {{
+        font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        background: #0f1115;
+        color: #e6e6e6;
+        max-width: 700px;
+        margin: 40px auto;
+        padding: 0 20px;
+    }}
+    h1 {{
+        font-size: 1.5rem;
+        margin-bottom: 0;
+    }}
+    .subtitle {{
+        color: #9aa0a6;
+        margin-top: 4px;
+        margin-bottom: 20px;
+        font-size: 0.9rem;
+    }}
+    .updated-box {{
+        color: #9aa0a6;
+        font-size: 0.85rem;
+        margin-bottom: 14px;
+    }}
+    .median-box {{
+        background: #1b1e26;
+        border: 1px solid #2a2e38;
+        border-radius: 10px;
+        padding: 16px 20px;
+        margin-bottom: 24px;
+        font-size: 1.1rem;
+    }}
+    .median-box strong {{
+        color: #7fd1a8;
+        font-size: 1.4rem;
+    }}
+    table {{
+        width: 100%;
+        border-collapse: collapse;
+        background: #1b1e26;
+        border-radius: 10px;
+        overflow: hidden;
+    }}
+    th, td {{
+        padding: 12px 14px;
+        text-align: left;
+    }}
+    th {{
+        background: #23272f;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        color: #9aa0a6;
+    }}
+    td.score {{
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+    }}
+    .proj {{
+        font-weight: 400;
+        font-size: 0.7rem;
+        color: #666b73;
+        margin-top: 2px;
+    }}
+    tr.above td.score {{ color: #7fd1a8; }}
+    tr.below td.score {{ color: #e08585; }}
+    .badge {{
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }}
+    .badge.win {{ background: rgba(127,209,168,0.15); color: #7fd1a8; }}
+    .badge.loss {{ background: rgba(224,133,133,0.15); color: #e08585; }}
+    .badge.tie {{ background: rgba(200,200,120,0.15); color: #cfcf7a; }}
+    .section-title {{
+        font-size: 1.1rem;
+        margin: 32px 0 12px;
+    }}
+    td.num, th:not(:first-child) {{
+        font-variant-numeric: tabular-nums;
+    }}
+    .standings-note {{
+        margin-top: 8px;
+        font-size: 0.7rem;
+        color: #666b73;
+    }}
+    .footer {{
+        margin-top: 20px;
+        font-size: 0.75rem;
+        color: #666b73;
+        text-align: center;
+    }}
+</style>
+</head>
+<body>
+    <h1>Median Bonus Tracker</h1>
+    <div class="subtitle">Week {week} &middot; live scores</div>
+
+    <div class="updated-box" id="updated-box" data-updated="{updated_at_iso}">
+        Last updated at <span id="updated-time"></span> (<span id="updated-ago">just now</span>)
+    </div>
+
+    <div class="median-box">
+        Current median score: <strong>{median:.2f}</strong>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Team</th>
+                <th>Score</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {rows}
+        </tbody>
+    </table>
+{standings_html}
+    <div class="footer">Auto-refreshes every ~5 min during Sun/Mon games</div>
+
+    <script>
+        (function() {{
+            var updatedAt = new Date(document.getElementById('updated-box').dataset.updated);
+
+            function render() {{
+                document.getElementById('updated-time').textContent =
+                    updatedAt.toLocaleTimeString('en-US', {{
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        timeZone: 'America/Los_Angeles',
+                        timeZoneName: 'short'
+                    }});
+
+                var seconds = Math.floor((new Date() - updatedAt) / 1000);
+                var text;
+                if (seconds < 60) {{
+                    text = 'just now';
+                }} else if (seconds < 3600) {{
+                    var mins = Math.floor(seconds / 60);
+                    text = mins + (mins === 1 ? ' minute ago' : ' minutes ago');
+                }} else {{
+                    var hours = Math.floor(seconds / 3600);
+                    text = hours + (hours === 1 ? ' hour ago' : ' hours ago');
+                }}
+                document.getElementById('updated-ago').textContent = text;
+            }}
+
+            render();
+            setInterval(render, 15000); // refresh the "X minutes ago" text every 15s
+        }})();
+    </script>
+</body>
+</html>
+"""
+    return html
+
+
+def main():
+    league = League(league_id=LEAGUE_ID, year=YEAR, espn_s2=ESPN_S2, swid=SWID)
+    scores = get_current_scores(league)
+
+    if not scores:
+        print("No scores found (bye week or offseason?). Skipping HTML update.")
+        return
+
+    values = [s for _, s, _ in scores]
+    median = statistics.median(values)
+    week = league.current_week
+    now = datetime.now(timezone.utc)
+    updated_at = now.strftime("%Y-%m-%d %H:%M")
+    updated_at_iso = now.isoformat()
+
+    try:
+        standings_html = build_standings_html(compute_standings(league))
+    except Exception as e:
+        print(f"Standings skipped due to error: {e!r}")
+        standings_html = ""
+
+    html = build_html(scores, median, week, updated_at, updated_at_iso, standings_html)
+
+    with open(OUTPUT_FILE, "w") as f:
+        f.write(html)
+
+    print(f"Updated {OUTPUT_FILE}: week {week}, median {median:.2f}, {len(scores)} teams")
+
+
+if __name__ == "__main__":
+    main()
