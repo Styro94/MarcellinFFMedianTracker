@@ -15,6 +15,13 @@ on:
     - cron: "17 0-13 * * 2"     # Tuesday UTC morning (Monday night games, Pacific)
     - cron: "17 16 * * 3"       # Wednesday: one refresh to show the new week
 
+    # THANKSGIVING 2026 (Thursday Nov 26). These two entries only match
+    # that specific date, so they do nothing on any other day.
+    # 14:17 UTC Thursday = 6:17am Pacific; the last trigger is 06:17 UTC
+    # Friday = 10:17pm Pacific, after the night game wraps up.
+    - cron: "17 14-23 26 11 *"
+    - cron: "17 0-6 27 11 *"
+
   workflow_dispatch: {}   # manual "Run workflow" button (starts a loop too)
 
 permissions:
@@ -68,6 +75,11 @@ jobs:
 
             # Stop looping once Tuesday afternoon UTC arrives (games are over)
             if [ "$(date -u +%u)" = "2" ] && [ "$(date -u +%H)" -ge 14 ]; then
+              break
+            fi
+
+            # Stop looping Friday 07:00 UTC (11pm Pacific) - Thanksgiving night is over
+            if [ "$(date -u +%u)" = "5" ] && [ "$(date -u +%H)" -ge 7 ]; then
               break
             fi
 
